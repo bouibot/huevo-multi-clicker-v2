@@ -1,0 +1,17 @@
+{
+  "name": "huevo-multi-clicker",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Мульти-кликер huevo.su через Telegram-бота: аккаунты клиентов + дневная комиссия на аккаунт владельца.",
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "grammy": "^1.35.0"
+  }
+}
