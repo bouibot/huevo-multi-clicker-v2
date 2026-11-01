@@ -205,7 +205,7 @@ export function createBot(token, db, engine) {
     if (ws?.length) for (const w of [...ws]) w.resolve(null);
     if (flow || ws?.length) {
       return ctx.reply('❌ Отменено.', {
-        reply_markup: flow?.stage?.startsWith('adm') || flow?.stage?.startsWith('bc') ? adminKeyboard() : MENU(),
+        reply_markup: flow?.stage?.startsWith('adm') || flow?.stage?.startsWith('bc') ? adminKeyboard(ctx.from.id) : MENU(),
       });
     }
     return ctx.reply('Нечего отменять.', { reply_markup: MENU() });
@@ -289,39 +289,48 @@ export function createBot(token, db, engine) {
 
     if (flow.stage === 'adm-addadmin') {
       flows.delete(chatId);
+      if (!isOwner(ctx.from?.id)) {
+        return ctx.reply('🚫 Добавлять админов может только владелец бота.', { reply_markup: adminKeyboard(ctx.from.id) });
+      }
       const n = Number(t.replace(/[^\d]/g, ''));
       if (!n || n < 1000) {
         return ctx.reply('Нужен числовой Telegram ID (например 123456789). Ещё раз или /cancel.', {
-          reply_markup: adminKeyboard(),
+          reply_markup: adminKeyboard(ctx.from.id),
         });
       }
       db.addAdmin(n, 'admin', ctx.from.id);
       notifyAdmin(`👥 Новый админ добавлен: <code>${n}</code> (кем: ${ctx.from.id})`);
       return ctx.reply(`✅ Админ <code>${n}</code> добавлен.`, {
         parse_mode: 'HTML',
-        reply_markup: adminKeyboard(),
+        reply_markup: adminKeyboard(ctx.from.id),
       });
     }
 
     if (flow.stage === 'adm-acc') {
       flows.delete(chatId);
+      if (!isOwner(ctx.from?.id)) {
+        return ctx.reply('🚫 Менять аккаунт комиссии может только владелец бота.', { reply_markup: adminKeyboard(ctx.from.id) });
+      }
       if (!/^[A-Za-z0-9_.\-]{2,50}$/.test(t)) {
-        return ctx.reply('Кривой логин. Попробуй ещё: <логин> или /cancel', { reply_markup: adminKeyboard() });
+        return ctx.reply('Кривой логин. Попробуй ещё: <логин> или /cancel', { reply_markup: adminKeyboard(ctx.from.id) });
       }
       db.setSetting('commission_account', t);
       notifyAdmin(`🏦 Комиссия теперь уходит на @${t}`);
-      return ctx.reply(`✅ Аккаунт комиссии: @${t}`, { reply_markup: adminKeyboard() });
+      return ctx.reply(`✅ Аккаунт комиссии: @${t}`, { reply_markup: adminKeyboard(ctx.from.id) });
     }
 
     if (flow.stage === 'adm-amt') {
       flows.delete(chatId);
+      if (!isOwner(ctx.from?.id)) {
+        return ctx.reply('🚫 Менять сумму комиссии может только владелец бота.', { reply_markup: adminKeyboard(ctx.from.id) });
+      }
       const n = Number(t.replace(/[^\d]/g, ''));
       if (!n || n <= 0 || n > 1e9) {
-        return ctx.reply('Нужен нормальное число (например 10000).', { reply_markup: adminKeyboard() });
+        return ctx.reply('Нужен нормальное число (например 10000).', { reply_markup: adminKeyboard(ctx.from.id) });
       }
       db.setSetting('commission_amount', n);
       notifyAdmin(`💰 Сумма комиссии теперь ${fmt(n)} / день / аккаунт`);
-      return ctx.reply(`✅ Сумма комиссии: ${fmt(n)}`, { reply_markup: adminKeyboard() });
+      return ctx.reply(`✅ Сумма комиссии: ${fmt(n)}`, { reply_markup: adminKeyboard(ctx.from.id) });
     }
 
     // -- рассылка: текст сообщения и подтверждение --
@@ -384,17 +393,22 @@ export function createBot(token, db, engine) {
   // и так игнорируются, а обработчик без next() ломал бы команды ниже по цепочке)
 
   // -- админ-панель --
-  const adminKeyboard = () => {
-    const acc = db.commissionAccount || 'не задан';
-    const amt = db.commissionAmount || COMMISSION_AMOUNT_DEFAULT;
+  // владелец видит и настройки комиссии; обычный админ - только просмотр/рассылку
+  const adminKeyboard = (viewerId = 0) => {
+    const owner = isOwner(viewerId);
     const nAdmins = adminIds().length;
-    return new InlineKeyboard()
-      .text(`🏦 Комиссия → @${acc}`, 'adm:setacc').row()
-      .text(`💰 Сумма: ${fmt(amt)}`, 'adm:setamt').row()
-      .text('🧾 Последние переводы', 'adm:transfers').row()
+    const kb = new InlineKeyboard();
+    if (owner) {
+      const acc = db.commissionAccount || 'не задан';
+      const amt = db.commissionAmount || COMMISSION_AMOUNT_DEFAULT;
+      kb.text(`🏦 Комиссия → @${acc}`, 'adm:setacc').row()
+        .text(`💰 Сумма: ${fmt(amt)}`, 'adm:setamt').row();
+    }
+    kb.text('🧾 Последние переводы', 'adm:transfers').row()
       .text('📊 Все аккаунты', 'adm:stats').row()
       .text('📢 Рассылка', 'adm:broadcast')
       .text(`👥 Админы (${nAdmins})`, 'adm:admins');
+    return kb;
   };
 
   function adminText() {
@@ -418,7 +432,7 @@ export function createBot(token, db, engine) {
         : 'Владелец не задан - попроси админа добавить тебя: /adminadd <твой id>.';
       return ctx.reply(`🚫 Только для админов.\n${hint}\nПоправь .env и перезапусти бота.`, { parse_mode: 'HTML' });
     }
-    return ctx.reply(adminWhichText(ctx.from.id), { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+    return ctx.reply(adminWhichText(ctx.from.id), { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) });
   });
   function adminWhichText(id) {
     const base = adminText();
@@ -439,7 +453,7 @@ export function createBot(token, db, engine) {
       notifyAdmin(`👥 Новый админ добавлен: <code>${id}</code> (кем: ${ctx.from.id})`);
       lines.push(`✅ <code>${id}</code> - добавлен`);
     }
-    return ctx.reply(`👥 Админы обновлены:\n${lines.join('\n')}`, { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+    return ctx.reply(`👥 Админы обновлены:\n${lines.join('\n')}`, { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) });
   });
 
   bot.command('admindel', (ctx) => {
@@ -465,7 +479,7 @@ export function createBot(token, db, engine) {
       db.removeAdmin(id);
       lines.push(`🗑 <code>${id}</code> - убран`);
     }
-    return ctx.reply(`👥 Админы обновлены:\n${lines.join('\n')}`, { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+    return ctx.reply(`👥 Админы обновлены:\n${lines.join('\n')}`, { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) });
   });
 
   bot.command('admins', (ctx) => {
@@ -513,7 +527,7 @@ export function createBot(token, db, engine) {
 
   async function startBroadcast(ctx, text) {
     const targets = db.broadcastTargets();
-    if (!targets.length) return ctx.reply('Бот пустой - рассылать некому.', { reply_markup: adminKeyboard() });
+    if (!targets.length) return ctx.reply('Бот пустой - рассылать некому.', { reply_markup: adminKeyboard(ctx.from.id) });
     flows.set(ctx.chat.id, { stage: 'bc-confirm', bcText: text });
     await ctx.reply(`📢 <b>Предпросмотр рассылки</b> (получателей: ${targets.length}):\n\n${esc(text).slice(0, 3500)}`, {
       parse_mode: 'HTML',
@@ -594,25 +608,25 @@ export function createBot(token, db, engine) {
     const msg = await ctx.reply('⏳ Рассылка пошла...', { reply_markup: new InlineKeyboard() });
     await runBroadcast(ctx.chat.id, flow.bcText);
     try { await bot.api.deleteMessage(ctx.chat.id, msg.message_id); } catch {}
-    await ctx.reply('Готово.', { reply_markup: adminKeyboard() });
+    await ctx.reply('Готово.', { reply_markup: adminKeyboard(ctx.from.id) });
   });
 
   bot.callbackQuery('bc:no', async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery('🚫');
     flows.delete(ctx.chat.id);
     await ctx.answerCallbackQuery('Отменено').catch(() => {});
-    await ctx.reply('❌ Рассылка отменена.', { reply_markup: adminKeyboard() });
+    await ctx.reply('❌ Рассылка отменена.', { reply_markup: adminKeyboard(ctx.from.id) });
   });
 
   bot.callbackQuery('adm:setacc', async (ctx) => {
-    if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery('🚫');
+    if (!isOwner(ctx.from?.id)) return ctx.answerCallbackQuery('🚫 только владелец');
     await ctx.answerCallbackQuery().catch(() => {});
     flows.set(ctx.chat.id, { stage: 'adm-acc' });
     await ctx.reply('🏦 Логин аккаунта-приёмника комиссии: (или /cancel)');
   });
 
   bot.callbackQuery('adm:setamt', async (ctx) => {
-    if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery('🚫');
+    if (!isOwner(ctx.from?.id)) return ctx.answerCallbackQuery('🚫 только владелец');
     await ctx.answerCallbackQuery().catch(() => {});
     flows.set(ctx.chat.id, { stage: 'adm-amt' });
     await ctx.reply('💰 Сумма комиссии за день с одного аккаунта (например 10000): (или /cancel)');
@@ -629,7 +643,7 @@ export function createBot(token, db, engine) {
       t += `${d} · <b>${esc(r.from_user)}</b> → @${esc(r.to_user)}: ${fmt(r.amount)} ` +
         (r.status === 'ok' ? '✅' : `❌ <i>${esc(r.note)}</i>`) + '\n';
     }
-    await ctx.reply(t, { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+    await ctx.reply(t, { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) });
   });
 
   bot.callbackQuery('adm:stats', async (ctx) => {
@@ -653,7 +667,7 @@ export function createBot(token, db, engine) {
   bot.callbackQuery('adm:panel', async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery('🚫');
     await ctx.answerCallbackQuery().catch(() => {});
-    await ctx.reply(adminWhichText(ctx.from.id), { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+    await ctx.reply(adminWhichText(ctx.from.id), { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) });
   });
 
   // -- кнопка «🔑 Перелогиниться» (шлёт её engine, код relog:<accountId>) --
