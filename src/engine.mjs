@@ -386,6 +386,16 @@ export class Engine {
 
   // -- комиссия: первый порог за день → перевод на аккаунт владельца --
   async #maybeCommission(farm, id, username, earnedToday) {
+    // аккаунты админов и владельца - без комиссии (отмечаем paid, чтобы не проверять каждый клик)
+    const rec = this.db.getAccount(id);
+    if (rec && this.db.isAdmin(rec.tg_user_id)) {
+      const stEx = this.db.earnedState(id);
+      if (!stEx.commission_paid) {
+        stamp(`${username}: аккаунт админа (${rec.tg_user_id}) - комиссия не берётся`);
+        this.db.updateEarned(id, { earned_today: stEx.earned_today, commission_paid: 1 });
+      }
+      return;
+    }
     if (this.db.earnedState(id).commission_paid) return;
     const need = this.db.commissionAmount || COMMISSION_AMOUNT_DEFAULT;
     if (earnedToday < need) return;
