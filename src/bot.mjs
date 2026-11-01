@@ -172,16 +172,19 @@ export function createBot(token, db, engine) {
   }
 
   // -- команды --
-  bot.command('start', (ctx) =>
-    ctx.reply(
+  bot.command('start', async (ctx) => {
+    // 1) инфо + сообщества
+    await ctx.reply(
       '🥚 <b>huevo мульти-кликер</b>\n\n' +
         'Добавь аккаунт - бот сам залогинится (капчу решаешь ты) и фармит копилку.\n' +
         'После первых 10 000 монеток за день бот переводит их сервису (комиссия) - спасибо за услугу!\n\n' +
         '<b>⚠️ Просьба:</b> подпишись на наши сообщества - так мы развиваем сервис:\n' +
         `• ${COMMUNITY_TG}\n• ${COMMUNITY_FARM}`,
       { parse_mode: 'HTML', reply_markup: SUBSCRIBE_KB() }
-    )
-  );
+    ).catch(() => {});
+    // 2) меню с кнопками аккаунтов
+    return ctx.reply('Меню:', { reply_markup: MENU() });
+  });
   bot.command('help', (ctx) => {
     const t =
       '/start - меню\n' +
