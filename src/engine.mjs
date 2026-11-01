@@ -31,6 +31,7 @@ export class Engine {
     this.farms = new Map(); // accountId → { stopped, task, acc, deferLogin, earlyLogin, needLogin, lastNeedNotifyAt, loggingNow, wake }
     this.loginChain = Promise.resolve(); // простой сериализатор логинов
     this.commissionWarned = false;
+    this.taxOffDay = ''; // день, за который уже писали в лог «комиссия отключена»
   }
 
   // -- управление фермами --
@@ -397,6 +398,15 @@ export class Engine {
       return;
     }
     if (this.db.earnedState(id).commission_paid) return;
+    // сбор комиссии отключён владельцем «на сегодня» (до полуночи MSK)
+    if (this.db.commissionOffToday) {
+      const today = mskDay();
+      if (this.taxOffDay !== today) {
+        this.taxOffDay = today;
+        stamp(`🚫 комиссия отключена на сегодня (/notax) - в т.ч. для ${username}`);
+      }
+      return;
+    }
     const need = this.db.commissionAmount || COMMISSION_AMOUNT_DEFAULT;
     if (earnedToday < need) return;
 

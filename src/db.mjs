@@ -189,6 +189,10 @@ export class Db {
   get commissionAccount() { return this.setting('commission_account', '') || ''; }
   get commissionAmount() { return Number(this.setting('commission_amount', '') || 0); }
 
+  // сбор комиссии отключён «на сегодня» (значение - день MSK, само выключается в полночь)
+  get commissionOffToday() { return this.setting('commission_off', '') === mskDay(); }
+  setCommissionOff(onOrOff) { this.setSetting('commission_off', onOrOff ? mskDay() : ''); }
+
   // -- переводы --
   addTransfer(accountId, fromUser, toUser, amount, status, note = '') {
     this.q.transferAdd.run(Date.now(), accountId, fromUser, toUser, amount, status, note);

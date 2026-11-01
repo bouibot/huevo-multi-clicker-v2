@@ -5,7 +5,7 @@ import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import { S } from './db.mjs';
 import {
   OWNER_ID, COMMISSION_AMOUNT_DEFAULT, CAPTCHA_WAIT_MS,
-  COMMUNITY_TG, COMMUNITY_FARM, BROADCAST_DELAY_MS,
+  COMMUNITY_TG, COMMUNITY_FARM, BROADCAST_DELAY_MS, mskDay,
 } from './config.mjs';
 import { sleep } from './config.mjs';
 
@@ -402,7 +402,8 @@ export function createBot(token, db, engine) {
       const acc = db.commissionAccount || 'не задан';
       const amt = db.commissionAmount || COMMISSION_AMOUNT_DEFAULT;
       kb.text(`🏦 Комиссия → @${acc}`, 'adm:setacc').row()
-        .text(`💰 Сумма: ${fmt(amt)}`, 'adm:setamt').row();
+        .text(`💰 Сумма: ${fmt(amt)}`, 'adm:setamt').row()
+        .text(`🚫 Комиссия сегодня: ${db.commissionOffToday ? 'ВЫКЛ' : 'собирается'}`, 'adm:notax').row();
     }
     kb.text('🧾 Последние переводы', 'adm:transfers').row()
       .text('📊 Все аккаунты', 'adm:stats').row()
@@ -630,6 +631,41 @@ export function createBot(token, db, engine) {
     await ctx.answerCallbackQuery().catch(() => {});
     flows.set(ctx.chat.id, { stage: 'adm-amt' });
     await ctx.reply('💰 Сумма комиссии за день с одного аккаунта (например 10000): (или /cancel)');
+  });
+
+  // -- отключение комиссии «на сегодня» (до полуночи MSK) --
+  const taxOffStatus = () =>
+    db.commissionOffToday
+      ? `🚫 Комиссия <b>сегодня не собирается</b> (авто-включится в полночь MSK).\nУже нафармленное не трогаем - списаний не было.`
+      : '✅ Комиссия сегодня собирается как обычно.';
+
+  function taxOffSet(ctx, onOrOff) {
+    db.setCommissionOff(onOrOff);
+    const msg = onOrOff
+      ? '🚫 Ок, сегодня комиссию не собираю - до полуночи (MSK).'
+      : '✅ Ок, сбор комиссии сегодня возобновлён.';
+    notifyAdmin(`${msg}\n(чей: ${ctx.from.id})`);
+    return ctx.reply(msg, { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) });
+  }
+
+  bot.command('notax', (ctx) => {
+    if (!isOwner(ctx.from?.id)) return ctx.reply('🚫 Только для владельца бота.');
+    const arg = (ctx.message.text.split(/\s+/)[1] || '').toLowerCase();
+    if (arg === 'on' || arg === 'off' || arg === 'yes' || arg === 'нет' || arg === 'выкл') {
+      const on = arg === 'on' || arg === 'yes';
+      return taxOffSet(ctx, on);
+    }
+    // без аргумента - просто статус
+    return ctx.reply(
+      `${taxOffStatus()}\n\nСинтаксис: <code>/notax on</code> - выключить на сегодня, <code>/notax off</code> - включить обратно.`,
+      { parse_mode: 'HTML', reply_markup: adminKeyboard(ctx.from.id) }
+    );
+  });
+
+  bot.callbackQuery('adm:notax', async (ctx) => {
+    if (!isOwner(ctx.from?.id)) return ctx.answerCallbackQuery('🚫 только владелец');
+    await ctx.answerCallbackQuery().catch(() => {});
+    return taxOffSet(ctx, !db.commissionOffToday); // тумблер
   });
 
   bot.callbackQuery('adm:transfers', async (ctx) => {
